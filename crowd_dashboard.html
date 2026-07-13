@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Crowd Panic Detection — Dashboard</title>
+<style>
+  :root {
+    --bg: #080b10; --panel: #0d1117; --border: #1c2230;
+    --red: #ff2d2d; --orange: #ff8c00; --yellow: #ffd400;
+    --green: #00e676; --cyan: #00e5ff; --pink: #ff1493;
+    --text: #c9d1d9; --dim: #4a5568; --mono: 'Courier New', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+  body::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 999;
+    background: repeating-linear-gradient(to bottom, transparent 0px, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 3px);
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header h1 { font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.12em; color: var(--pink); text-transform: uppercase; }
+  #state-badge {
+    font-family: var(--mono); font-size: 0.75rem; font-weight: 700;
+    letter-spacing: 0.15em; padding: 4px 14px; border-radius: 3px; border: 1px solid currentColor;
+    transition: color 0.3s, border-color 0.3s, background 0.3s;
+  }
+  .s-NORMAL    { color: var(--green);  background: rgba(0,230,118,0.08); }
+  .s-ALERT     { color: var(--yellow); background: rgba(255,212,0,0.08); }
+  .s-PANIC-RISK { color: var(--orange); background: rgba(255,140,0,0.10); }
+  .s-MASS-PANIC { color: var(--red); background: rgba(255,45,45,0.12); animation: flash 0.8s step-start infinite; }
+  @keyframes flash { 50% { opacity: 0.3; } }
+  #clock { font-family: var(--mono); font-size: 0.72rem; color: var(--dim); }
+  .grid {
+    display: grid; grid-template-columns: 1fr 320px;
+    gap: 12px; padding: 12px; max-width: 1400px; margin: 0 auto;
+  }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .panel-title {
+    font-family: var(--mono); font-size: 0.65rem; letter-spacing: 0.12em;
+    color: var(--dim); text-transform: uppercase; padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  #feed-panel { grid-row: 1 / 3; }
+  #feed-img { width: 100%; display: block; background: #000; aspect-ratio: 16/9; object-fit: cover; }
+  #feed-overlay {
+    padding: 8px 14px; display: flex; gap: 20px;
+    font-family: var(--mono); font-size: 0.68rem; color: var(--dim);
+    border-top: 1px solid var(--border);
+  }
+  #feed-overlay span b { color: var(--cyan); }
+
+  /* panic gauge */
+  .gauge-wrap { padding: 16px 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .gauge-arc-wrap { position: relative; width: 140px; height: 140px; }
+  #gauge-canvas { width: 140px; height: 140px; }
+  .gauge-label {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center;
+  }
+  .gauge-pct { font-family: var(--mono); font-size: 1.4rem; font-weight: 700; }
+  .gauge-state { font-family: var(--mono); font-size: 0.55rem; letter-spacing: 0.08em; color: var(--dim); }
+
+  /* metric bars */
+  .metrics { padding: 0 14px 14px; }
+  .metric-row { margin-bottom: 10px; }
+  .metric-header { display: flex; justify-content: space-between; margin-bottom: 3px; }
+  .metric-name { font-family: var(--mono); font-size: 0.60rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; }
+  .metric-val  { font-family: var(--mono); font-size: 0.60rem; }
+  .metric-track { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .metric-fill  { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+
+  /* stats grid */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); }
+  .stat-card { background: var(--panel); padding: 12px 14px; }
+  .stat-label { font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); margin-bottom: 5px; }
+  .stat-value { font-family: var(--mono); font-size: 1.4rem; font-weight: 700; line-height: 1; }
+
+  /* trend chart */
+  #chart-wrap { padding: 10px 14px; }
+  #trend-canvas { width: 100%; height: 80px; display: block; }
+
+  /* alert log */
+  #alert-log { max-height: 200px; overflow-y: auto; padding: 4px 0; }
+  #alert-log::-webkit-scrollbar { width: 4px; }
+  #alert-log::-webkit-scrollbar-thumb { background: var(--border); }
+  .log-row {
+    display: grid; grid-template-columns: 65px 90px 55px 50px;
+    gap: 6px; padding: 5px 14px; font-family: var(--mono); font-size: 0.62rem;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .log-time { color: var(--dim); }
+  .log-NORMAL { color: var(--green); }
+  .log-ALERT  { color: var(--yellow); }
+  .log-PANIC-RISK { color: var(--orange); }
+  .log-MASS-PANIC { color: var(--red); }
+  #log-empty { padding: 16px 14px; font-family: var(--mono); font-size: 0.65rem; color: var(--dim); text-align: center; }
+  footer { text-align: center; padding: 10px; font-family: var(--mono); font-size: 0.60rem; color: var(--border); border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⬛ Smart Crowd Panic Detection System</h1>
+  <span id="state-badge" class="s-NORMAL">NORMAL</span>
+  <span id="clock">--:--:--</span>
+</header>
+
+<div class="grid">
+
+  <!-- Live Feed -->
+  <div class="panel" id="feed-panel">
+    <div class="panel-title">Live Camera Feed</div>
+    <img id="feed-img" src="/video_feed" alt="Live Feed"/>
+    <div id="feed-overlay">
+      <span>FPS <b id="fps-val">--</b></span>
+      <span>FRAME <b id="frame-val">-----</b></span>
+      <span>PEOPLE <b id="people-val">0</b></span>
+      <span>DENSITY <b id="density-val">--</b></span>
+    </div>
+  </div>
+
+  <!-- Right column -->
+  <div style="display:flex;flex-direction:column;gap:12px;">
+
+    <!-- Panic gauge -->
+    <div class="panel">
+      <div class="panel-title">Panic Score</div>
+      <div class="gauge-wrap">
+        <div class="gauge-arc-wrap">
+          <canvas id="gauge-canvas" width="140" height="140"></canvas>
+          <div class="gauge-label">
+            <div class="gauge-pct" id="gauge-pct" style="color:var(--green)">0%</div>
+            <div class="gauge-state" id="gauge-state">NORMAL</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5 metric bars -->
+      <div class="metrics">
+        <div class="metric-row">
+          <div class="metric-header"><span class="metric-name">Velocity Spike</span><span class="metric-val" id="m-spike" style="color:var(--red)">0%</span></div>
+          <div class="metric-track"><div class="metric-fill" id="b-spike" style="width:0%;background:var(--red)"></div></div>
+        </div>
+        <div class="metric-row">
+          <div class="metric-header"><span class="metric-name">Direction Chaos</span><span class="metric-val" id="m-chaos" style="color:var(--orange)">0%</span></div>
+          <div class="metric-track"><div class="metric-fill" id="b-chaos" style="width:0%;background:var(--orange)"></div></div>
+        </div>
+        <div class="metric-row">
+          <div class="metric-header"><span class="metric-name">Motion Entropy</span><span class="metric-val" id="m-entropy" style="color:var(--yellow)">0%</span></div>
+          <div class="metric-track"><div class="metric-fill" id="b-entropy" style="width:0%;background:var(--yellow)"></div></div>
+        </div>
+        <div class="metric-row">
+          <div class="metric-header"><span class="metric-name">Convergence</span><span class="metric-val" id="m-conv" style="color:var(--cyan)">0%</span></div>
+          <div class="metric-track"><div class="metric-fill" id="b-conv" style="width:0%;background:var(--cyan)"></div></div>
+        </div>
+        <div class="metric-row">
+          <div class="metric-header"><span class="metric-name">Avg Speed</span><span class="metric-val" id="m-speed" style="color:var(--pink)">0 px/f</span></div>
+          <div class="metric-track"><div class="metric-fill" id="b-speed" style="width:0%;background:var(--pink)"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="panel">
+      <div class="panel-title">Detection Stats</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Crowd Count</div>
+          <div class="stat-value" id="stat-count" style="color:var(--cyan)">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Panic Score</div>
+          <div class="stat-value" id="stat-score" style="color:var(--red)">0%</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trend -->
+    <div class="panel">
+      <div class="panel-title">Panic Trend (last 60s)</div>
+      <div id="chart-wrap">
+        <canvas id="trend-canvas" width="280" height="80"></canvas>
+      </div>
+    </div>
+
+    <!-- Alert log -->
+    <div class="panel" style="flex:1">
+      <div class="panel-title">Alert Log</div>
+      <div id="alert-log">
+        <div id="log-empty">No alerts — system normal</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer>Bade Hari Preetham &nbsp;|&nbsp; Smart Crowd Panic Detection AI &nbsp;|&nbsp; Dashboard v1.0</footer>
+
+<script>
+const TREND_MAX = 60;
+const trendData = Array(TREND_MAX).fill(0);
+let knownAlerts = 0;
+
+// clock
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('en-GB');
+}, 1000);
+
+// state color map
+const STATE_COLORS = {
+  'NORMAL':     '#00e676',
+  'ALERT':      '#ffd400',
+  'PANIC RISK': '#ff8c00',
+  'MASS PANIC': '#ff2d2d',
+};
+
+// gauge
+const gCanvas = document.getElementById('gauge-canvas');
+const gCtx    = gCanvas.getContext('2d');
+function drawGauge(pct, color) {
+  const cx = 70, cy = 70, r = 52;
+  gCtx.clearRect(0, 0, 140, 140);
+  // track
+  gCtx.beginPath();
+  gCtx.arc(cx, cy, r, Math.PI * 0.75, Math.PI * 0.25, false);
+  gCtx.strokeStyle = '#1c2230'; gCtx.lineWidth = 10; gCtx.stroke();
+  // fill
+  const start = Math.PI * 0.75;
+  const end   = start + (Math.PI * 1.5) * pct;
+  gCtx.beginPath();
+  gCtx.arc(cx, cy, r, start, end, false);
+  gCtx.strokeStyle = color; gCtx.lineWidth = 10;
+  gCtx.shadowColor = color; gCtx.shadowBlur = 8;
+  gCtx.stroke(); gCtx.shadowBlur = 0;
+}
+
+// trend chart
+function drawTrend() {
+  const canvas = document.getElementById('trend-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  // grid
+  ctx.strokeStyle = '#1c2230'; ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75].forEach(y => {
+    ctx.beginPath(); ctx.moveTo(0, H*(1-y)); ctx.lineTo(W, H*(1-y)); ctx.stroke();
+  });
+  // line
+  ctx.beginPath(); ctx.strokeStyle = '#ff2d2d'; ctx.lineWidth = 1.5;
+  ctx.shadowColor = '#ff2d2d'; ctx.shadowBlur = 4;
+  trendData.forEach((v, i) => {
+    const x = (i / (TREND_MAX-1)) * W;
+    const y = H - v * H;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke(); ctx.shadowBlur = 0;
+  // legend
+  ctx.font = '9px Courier New'; ctx.fillStyle = '#ff2d2d';
+  ctx.fillText('PANIC %', W - 52, 12);
+}
+
+// alert log
+function renderAlerts(alerts) {
+  if (!alerts.length) return;
+  const log   = document.getElementById('alert-log');
+  const empty = document.getElementById('log-empty');
+  if (empty) empty.remove();
+  const newAlerts = alerts.slice(knownAlerts);
+  knownAlerts = alerts.length;
+  newAlerts.forEach(a => {
+    const cls = 'log-' + a.state.replace(/ /g, '-');
+    const row = document.createElement('div');
+    row.className = 'log-row';
+    row.innerHTML = `<span class="log-time">${a.time}</span><span class="${cls}">${a.state}</span><span style="color:#ff2d2d">${a.score}</span><span style="color:#00e5ff">${a.count}p</span>`;
+    log.appendChild(row);
+  });
+  log.scrollTop = log.scrollHeight;
+}
+
+// bar helper
+function setBar(id, bid, val, max=1) {
+  const pct = Math.min(100, (val/max)*100).toFixed(1);
+  document.getElementById(id).textContent = (val*100).toFixed(0) + '%';
+  document.getElementById(bid).style.width = pct + '%';
+}
+
+// main poll
+async function poll() {
+  try {
+    const [sRes, aRes] = await Promise.all([fetch('/api/state'), fetch('/api/alerts')]);
+    const s = await sRes.json();
+    const alerts = await aRes.json();
+
+    const col = STATE_COLORS[s.gated_state] || '#00e676';
+    const cls = 's-' + s.gated_state.replace(/ /g, '-');
+
+    // badge
+    const badge = document.getElementById('state-badge');
+    badge.textContent = s.gated_state;
+    badge.className   = cls;
+
+    // feed overlay
+    document.getElementById('fps-val').textContent     = s.fps.toFixed(1);
+    document.getElementById('frame-val').textContent   = String(s.frame_idx).padStart(5,'0');
+    document.getElementById('people-val').textContent  = s.crowd_count;
+    document.getElementById('density-val').textContent = s.density_state;
+
+    // gauge
+    drawGauge(s.panic_score, col);
+    const gp = document.getElementById('gauge-pct');
+    gp.textContent = Math.round(s.panic_score * 100) + '%';
+    gp.style.color = col;
+    document.getElementById('gauge-state').textContent = s.panic_state;
+
+    // metric bars
+    setBar('m-spike',   'b-spike',   s.spike_ratio);
+    setBar('m-chaos',   'b-chaos',   s.dir_chaos);
+    setBar('m-entropy', 'b-entropy', s.entropy);
+    setBar('m-conv',    'b-conv',    s.convergence);
+    document.getElementById('m-speed').textContent = s.avg_speed.toFixed(1) + ' px/f';
+    document.getElementById('b-speed').style.width = Math.min(100, s.avg_speed / 30 * 100).toFixed(1) + '%';
+
+    // stat cards
+    document.getElementById('stat-count').textContent = s.crowd_count;
+    document.getElementById('stat-score').textContent = Math.round(s.panic_score*100) + '%';
+    document.getElementById('stat-score').style.color = col;
+
+    // trend
+    trendData.push(s.panic_score); if (trendData.length > TREND_MAX) trendData.shift();
+    drawTrend();
+
+    renderAlerts(alerts);
+  } catch(e) {}
+}
+
+setInterval(poll, 500);
+poll();
+</script>
+</body>
+</html>
