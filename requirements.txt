@@ -1,0 +1,8 @@
+torch==2.1.0
+torchvision==0.16.0
+ultralytics==8.0.196
+opencv-python==4.8.1.78
+numpy==1.26.2
+flask==3.0.0
+pygame==2.5.2
+python-dotenv==1.0.0
